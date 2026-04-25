@@ -17,10 +17,8 @@ export class HcmService {
     };
     
     this.breaker = new CircuitBreaker(this.callHcm.bind(this), options);
-    this.breaker.fallback((_err: any) => {
-      this.logger.error('HCM Service is down (Circuit Breaker OPEN)');
-      throw new ServiceUnavailableException('HCM System is temporarily unavailable.');
-    });
+    // No global fallback to avoid swallowing original errors.
+    // Error handling is done in individual methods.
   }
 
   private async callHcm(endpoint: string, method: 'GET' | 'POST', data?: any): Promise<any> {
@@ -39,7 +37,7 @@ export class HcmService {
       } catch (error) {
         attempt++;
         if (attempt > maxRetries) throw error;
-        const delay = Math.pow(2, attempt) * 500;
+        const delay = process.env.NODE_ENV === 'test' ? 1 : Math.pow(2, attempt) * 500;
         this.logger.warn(`HCM call failed. Retrying in ${delay}ms... (Attempt ${attempt}/${maxRetries})`);
         await new Promise(resolve => setTimeout(resolve, delay));
       }
@@ -71,7 +69,7 @@ export class HcmService {
       const data = await this.breaker.fire('/sync-snapshot', 'POST');
       return Array.isArray(data) ? data : [];
     } catch (error) {
-      this.handleError(error, 'getBalancesSnapshot');
+      this.logger.error(`Error in HCM Service [getBalancesSnapshot]: ${error.message}`);
       return [];
     }
   }

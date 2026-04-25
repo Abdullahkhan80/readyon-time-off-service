@@ -12,7 +12,7 @@ import { HcmService } from '../hcm/hcm.service';
 import { Mutex } from 'async-mutex';
 
 @Injectable()
-export class TimeOffService {
+export class TimeOffService implements OnApplicationBootstrap {
   private readonly logger = new Logger(TimeOffService.name);
   private readonly reservationMutex = new Mutex(); // Protects balance reservations from SQLite transaction overlap
 
@@ -30,6 +30,16 @@ export class TimeOffService {
     private hcmService: HcmService,
     private dataSource: DataSource,
   ) {}
+
+  async onApplicationBootstrap() {
+    this.logger.log('Application bootstrap: Triggering initial balance reconciliation...');
+    try {
+      const result = await this.reconcileBalances();
+      this.logger.log(`Initial sync completed: Total ${result.total}, Created ${result.created}, Corrected ${result.corrected}`);
+    } catch (error) {
+      this.logger.error(`Initial sync failed: ${error.message}`);
+    }
+  }
 
   async getBalances(employeeId: string): Promise<TimeOffBalance[]> {
     return await this.balanceRepository.find({ where: { employeeId } });
@@ -167,19 +177,47 @@ export class TimeOffService {
     const snapshot = await this.hcmService.getBalancesSnapshot();
     return await this.dataSource.transaction(async (manager) => {
       let corrections = 0;
+      let created = 0;
       for (const item of snapshot) {
-        const balance = await manager.findOne(TimeOffBalance, { 
+        let balance = await manager.findOne(TimeOffBalance, { 
           where: { employeeId: item.employeeId, locationId: item.locationId, type: item.type } 
         });
-        if (balance && Number(balance.balance) !== Number(item.balance)) {
-          const oldVal = balance.balance;
-          balance.balance = item.balance;
+
+        if (balance) {
+          if (Number(balance.balance) !== Number(item.balance)) {
+            const oldVal = balance.balance;
+            balance.balance = item.balance;
+            await manager.save(balance);
+            await this.logAction(manager, 'BALANCE', balance.id, 'SYNC_ADJUST', `Corrected ${oldVal} -> ${item.balance}`);
+            corrections++;
+          }
+        } else {
+          // Create missing employee if needed
+          let employee = await manager.findOne(Employee, { where: { id: item.employeeId } });
+          if (!employee) {
+            employee = manager.create(Employee, {
+              id: item.employeeId,
+              firstName: 'Imported',
+              lastName: 'User',
+              email: `${item.employeeId}@example.com`,
+            });
+            await manager.save(employee);
+          }
+
+          // Create missing balance
+          balance = manager.create(TimeOffBalance, {
+            employeeId: item.employeeId,
+            locationId: item.locationId,
+            type: item.type,
+            balance: item.balance,
+            reservedBalance: 0,
+          });
           await manager.save(balance);
-          await this.logAction(manager, 'BALANCE', balance.id, 'SYNC_ADJUST', `Corrected ${oldVal} -> ${item.balance}`);
-          corrections++;
+          await this.logAction(manager, 'BALANCE', balance.id, 'SYNC_CREATE', `Created with balance ${item.balance}`);
+          created++;
         }
       }
-      return { total: snapshot.length, corrected: corrections };
+      return { total: snapshot.length, corrected: corrections, created: created };
     });
   }
 

@@ -3,6 +3,8 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { ConfigModule } from '@nestjs/config';
 import { TimeOffModule } from './time-off/time-off.module';
 import { HcmModule } from './hcm/hcm.module';
+import { AppController } from './app.controller';
+import { AppService } from './app.service';
 import { MockHcmController } from './mock-hcm/mock-hcm.controller';
 import { Employee } from './time-off/entities/employee.entity';
 import { TimeOffBalance } from './time-off/entities/time-off-balance.entity';
@@ -25,6 +27,7 @@ import { AuditLog } from './common/entities/audit-log.entity';
     TimeOffModule,
     HcmModule,
   ],
-  controllers: [MockHcmController],
+  controllers: [AppController, MockHcmController],
+  providers: [AppService],
 })
 export class AppModule {}

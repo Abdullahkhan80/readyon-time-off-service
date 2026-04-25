@@ -27,6 +27,10 @@ describe('HcmService', () => {
 
     service = module.get<HcmService>(HcmService);
     httpService = module.get<HttpService>(HttpService);
+    
+    // Reset and relax breaker state between tests to prevent it from opening during retries
+    (service as any).breaker.close();
+    (service as any).breaker.options.errorThresholdPercentage = 100;
   });
 
   describe('validateBalance', () => {
@@ -55,7 +59,6 @@ describe('HcmService', () => {
 
     it('should throw ServiceUnavailableException if all retries fail', async () => {
       jest.spyOn(httpService, 'get').mockReturnValue(throwError(() => ({ response: { status: 500 } })));
-      // Note: Opossum might throw eventually, or retry logic will.
       await expect(service.validateBalance(mockEmployeeId, 10, mockLocationId)).rejects.toThrow(ServiceUnavailableException);
     });
   });
