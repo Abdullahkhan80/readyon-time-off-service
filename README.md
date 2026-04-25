@@ -16,11 +16,12 @@
 - [3. Key Features](#3-key-features)
 - [4. Tech Stack](#4-tech-stack)
 - [5. API Documentation](#5-api-documentation)
-- [6. Database Schema](#6-database-schema)
-- [7. HCM Integration Strategy](#7-hcm-integration-strategy)
-- [8. Installation & Setup](#8-installation--setup)
-- [9. Testing & Coverage](#9-testing--coverage)
-- [10. Analysis of Alternatives](#10-analysis-of-alternatives)
+- [6. Postman Testing Guide](#6-postman-testing-guide)
+- [7. Database Schema](#7-database-schema)
+- [8. HCM Integration Strategy](#8-hcm-integration-strategy)
+- [9. Installation & Setup](#9-installation--setup)
+- [10. Testing & Coverage](#10-testing--coverage)
+- [11. Analysis of Alternatives](#11-analysis-of-alternatives)
 
 ---
 
@@ -73,6 +74,7 @@ sequenceDiagram
 - ✅ **Batch Reconciliation**: Overwrites local drift with full HCM corpus snapshots.
 - ✅ **Global Idempotency**: `X-Idempotency-Key` prevents duplicate deductions on retries.
 - ✅ **Immutable Audit Logs**: Comprehensive history of every balance mutation.
+- ✅ **Per-Location Tracking**: Supports complex enterprise structures where balances vary by location.
 
 ---
 
@@ -96,22 +98,42 @@ sequenceDiagram
 | `POST` | `/time-off/reject/:id` | Terminate request and release hold. |
 | `POST` | `/time-off/sync` | Trigger full reconciliation with HCM. |
 
-#### **Example: Create Request**
-```bash
-curl -X POST http://localhost:3000/time-off/request \
-  -H "Content-Type: application/json" \
-  -d '{
-    "employeeId": "123e4567-e89b-12d3-a456-426614174000",
-    "locationId": "NY-01",
-    "requestedHours": 16,
-    "startDate": "2026-06-01",
-    "endDate": "2026-06-03"
-  }'
+---
+
+## 📮 6. Postman Testing Guide
+
+Follow this sequence to test the full lifecycle:
+
+### **1. Check Balance**
+`GET http://localhost:3000/time-off/balance?employeeId=123e4567-e89b-12d3-a456-426614174000`
+
+### **2. Submit Request (Create Hold)**
+`POST http://localhost:3000/time-off/request`
+**Headers**: `x-idempotency-key: unique-key-123`
+**Body**:
+```json
+{
+  "employeeId": "123e4567-e89b-12d3-a456-426614174000",
+  "locationId": "NY",
+  "requestedHours": 16,
+  "startDate": "2026-06-01",
+  "endDate": "2026-06-02",
+  "managerComment": "Summer Trip"
+}
+```
+
+### **3. Approve Request (Sync with HCM)**
+`POST http://localhost:3000/time-off/approve/{ID_FROM_STEP_2}`
+**Body**:
+```json
+{
+  "managerComment": "Approved by HR"
+}
 ```
 
 ---
 
-## 💾 6. Database Schema
+## 💾 7. Database Schema
 - **Employee**: User identification and metadata.
 - **TimeOffBalance**: Per-employee, per-location tracking. Includes `balance` vs `reservedBalance`.
 - **TimeOffRequest**: Status tracking linked to HCM transaction IDs.
@@ -120,7 +142,7 @@ curl -X POST http://localhost:3000/time-off/request \
 
 ---
 
-## 🔗 7. HCM Integration Strategy
+## 🔗 8. HCM Integration Strategy
 The service implements **"Defensive Integration"**:
 1. **Pre-flight Check**: Validates balance in HCM *before* starting the local transaction.
 2. **Atomic Sync**: Only clears local reserved balances *after* HCM confirms deduction.
@@ -129,7 +151,7 @@ The service implements **"Defensive Integration"**:
 
 ---
 
-## ⚙️ 8. Installation & Setup
+## ⚙️ 9. Installation & Setup
 
 ```bash
 # 1. Clone & Install
@@ -146,7 +168,7 @@ npm run start:dev
 
 ---
 
-## 🧪 9. Testing & Coverage
+## 🧪 10. Testing & Coverage
 We maintain a strict **90%+ coverage** for the core business logic.
 
 ```bash
@@ -162,7 +184,7 @@ npm run test:cov
 
 ---
 
-## ⚖️ 10. Analysis of Alternatives
+## ⚖️ 11. Analysis of Alternatives
 
 | Approach | Considerations | Decision |
 | :--- | :--- | :--- |
@@ -170,14 +192,6 @@ npm run test:cov
 | **Reserved Balance** | Ensures integrity; allows clear "Pending" state. | ✅ Chosen |
 | **Optimistic Locking** | Scalable; avoids heavy DB row-level locks. | ✅ Chosen |
 | **Batch Reconcile** | Essential for out-of-band HCM updates. | ✅ Chosen |
-
----
-
-## 🛠️ Challenges Handled
-- 🏁 **Race Conditions**: Solved via `async-mutex` and DB versioning.
-- 📉 **HCM Outages**: Handled via Circuit Breakers and Retries.
-- 🔄 **Data Drift**: Resolved through daily corpus reconciliation.
-- 📑 **Auditability**: Guaranteed via immutable event logging.
 
 ---
 Built with ❤️ for High-Consistency HR Systems.
